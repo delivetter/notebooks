@@ -7,6 +7,8 @@ import random
 
 import vehicles
 
+# hola
+
 #Gx -> punt de la malla (grid)
 #Vx -> punt del graf vial
 #Dx -> punt d'entrega (delivery)
