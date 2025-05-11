@@ -5,6 +5,7 @@ import runtimeErrorOverlay from "@replit/vite-plugin-runtime-error-modal";
 
 export default defineConfig({
     plugins: [react(), runtimeErrorOverlay()],
+    base: "./proy3",
     resolve: {
         alias: {
             "@": path.resolve(import.meta.dirname, "src"),
