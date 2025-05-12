@@ -4,22 +4,6 @@ This repository contains the Jupyter notebooks used to process geospatial data a
 
 The notebooks are organized into modules for data preprocessing, simulation logic, and model-specific analyses. All simulations aim to support decision-making by providing cost and time estimates under varying delivery conditions.
 
-## 🔧 Modules Overview
-
-### Data Processing
-
-* **neighborhood\_filter.ipynb**: Filters and preprocesses neighborhood boundaries to reduce the simulation scope.
-* **pycatastro\_api.ipynb**: Extracts and formats parcel/building data from Catastro services.
-
-### Simulation Logic
-
-* **simulation.ipynb**: Combines results from different delivery models into a unified, minable view that can be analyzed or exported.
-
-### Delivery Models
-
-* **M1.ipynb**: Implements simulation logic for Model 1, representing a van-based delivery strategy.
-* **M2.ipynb**: Simulates Model 2, which uses the autonomous robot **Ona**.
-
 ## ✅ Usage
 
 1. Clone this repository:
@@ -42,17 +26,6 @@ The notebooks are organized into modules for data preprocessing, simulation logi
    ```bash
    jupyter lab
    ```
-
-4. Run the notebooks in the following order:
-
-   * `data_processing/pycatastro_api.ipynb`
-   * `data_processing/neighborhood_filter.ipynb`
-   * `models/M1.ipynb` and/or `models/M2.ipynb`
-   * `minable_view/simulation.ipynb`
-
-## 📃 Output
-
-The final simulation results will be saved to a CSV file, which can be used for visualization or integrated into other tools such as the Delivetter frontend.
 
 ## 📆 Notes
 
