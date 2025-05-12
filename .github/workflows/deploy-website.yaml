@@ -40,6 +40,7 @@ jobs:
                   github_token: ${{ secrets.GITHUB_TOKEN }}
                   publish_dir: website/dist
                   cname: "delivetter.tech"
+                  allow_empty_commit: true
 
             - name: Copy index to 404
               run: |
