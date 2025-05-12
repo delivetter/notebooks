@@ -417,7 +417,7 @@ export default function Comparison() {
                   transition={{ duration: 0.5, delay: 0.2 }}
                 >
                   <div className="bg-white p-4 rounded-full mr-5 shadow-lg">
-                    <FaTruck className="text-3xl text-blue-600" />
+                    <FaTruck className="text-3xl text-red-600" />
                   </div>
                   <div>
                     <h2 className="text-3xl font-bold text-white">Traditional Delivery</h2>
@@ -484,7 +484,7 @@ export default function Comparison() {
                   transition={{ duration: 0.5, delay: 0.2 }}
                 >
                   <div className="bg-white p-4 rounded-full mr-5 shadow-lg">
-                    <FaRobot className="text-3xl text-purple-600" />
+                    <FaRobot className="text-3xl text-green-600" />
                   </div>
                   <div>
                     <h2 className="text-3xl font-bold text-white">Autonomous Delivery</h2>

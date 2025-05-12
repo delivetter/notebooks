@@ -3,7 +3,6 @@ import { motion } from "framer-motion";
 import { Link } from "wouter";
 import {
     FaInfo,
-    FaArrowRight,
     FaTruck,
     FaRobot,
     FaMapMarkerAlt,
@@ -21,32 +20,41 @@ import {
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 
 import Papa from "papaparse";
+import { MapContainer, TileLayer, GeoJSON, useMap } from "react-leaflet";
+import L from "leaflet";
+import barrios from "@/assets/barris.json"; // asegúrate que está bien la ruta
+import "leaflet/dist/leaflet.css";
 
 // TypeScript interface for CSV rows
 type SimulationRow = {
     modelo: string;
     barrio: string;
-    comercios_barrio: string;
-    cids_barrio: string;
-    almacenes_barrio: string;
-    paquetes: string;
-    comercios_seleccionados: string;
-    semilla: string;
-    total_kms_walk: string;
-    total_hours_walk: string;
-    total_kms_drive: string;
-    total_hours_drive: string;
-    distance_cost_van: string;
-    distance_cost_ona: string;
-    time_cost_van: string;
-    time_cost_ona: string;
-    total_cost: string;
+    comercios_barrio: number;
+    cids_barrio: number;
+    almacenes_barrio: number;
+    paquetes: number;
+    comercios_seleccionados: number;
+    semilla: number;
+    total_kms_walk: number;
+    total_hours_walk: number;
+    total_kms_drive: number;
+    total_hours_drive: number;
+    distance_cost_van: number;
+    distance_cost_ona: number;
+    time_cost_van: number;
+    time_cost_ona: number;
+    total_cost: number;
 };
 
-import { MapContainer, TileLayer, GeoJSON, useMap } from "react-leaflet";
-import L from "leaflet";
-import barrios from "@/assets/barris.json"; // asegúrate que está bien la ruta
-import "leaflet/dist/leaflet.css";
+type Neighborhood = {
+    barrio: string;
+    almacenes_barrio: number;
+    comercios_barrio: number;
+    cids_barrio: number;
+    paquetes: number[];
+};
+
+type PredefinedSelection = Record<"M1" | "M2", SimulationRow | null>;
 
 type BarrioMapProps = {
     onSelectBarrio: (barrio: string) => void;
@@ -191,11 +199,35 @@ export function BarrioMap({ onSelectBarrio, selectedBarrio }: BarrioMapProps) {
     );
 }
 
+const groupNeighborhoods = (data: SimulationRow[]) => {
+    const result: Record<string, Neighborhood> = {};
+
+    for (const row of data) {
+        if (!result[row.barrio]) {
+            result[row.barrio] = {
+                barrio: row.barrio,
+                almacenes_barrio: row.almacenes_barrio,
+                comercios_barrio: row.comercios_barrio,
+                cids_barrio: row.cids_barrio,
+                paquetes: [row.paquetes],
+            };
+        } else {
+            const barrio = result[row.barrio]!;
+            if (!barrio.paquetes.includes(row.paquetes)) {
+                barrio.paquetes.push(row.paquetes);
+            }
+        }
+    }
+
+    return result;
+};
+
 export default function Simulation() {
     console.log("Simulation component rendered");
     // Estados para los selectores
-    const [neighborhood, setNeighborhood] = useState("");
-    const [packageSize, setPackageSize] = useState("");
+    const [selectedNeighborhood, setSelectedNeighborhood] =
+        useState<Neighborhood>({} as Neighborhood);
+    const [selectedPackageQty, setSelectedPackageQty] = useState<number>(0);
 
     // Tipo para simulationResult
     interface SimulationResultType {
@@ -206,11 +238,13 @@ export default function Simulation() {
 
     // Estados para datos y filtros
     const [data, setData] = useState<SimulationRow[]>([]);
-    const [neighborhoods, setNeighborhoods] = useState<SimulationRow[]>([]);
-    const [packageSizes, setPackageSizes] = useState<string[]>([]);
-    const [filteredData, setFilteredData] = useState<SimulationRow | null>(
-        null
-    );
+    const [neighborhoods, setNeighborhoods] = useState<
+        Record<string, Neighborhood>
+    >({});
+    const [predefinedData, setPredefinedData] = useState<PredefinedSelection>({
+        M1: null,
+        M2: null,
+    });
     const [isLoading, setIsLoading] = useState(true);
     const [simulationResult, setSimulationResult] =
         useState<SimulationResultType | null>(null);
@@ -228,63 +262,34 @@ export default function Simulation() {
                 }
                 return res.text();
             })
-            .then((csv) => {
+            .then(async (csv) => {
                 console.log("CSV fetched, length:", csv.length);
                 console.log(
                     "Contenido bruto del CSV (primeros 300 caracteres):"
                 );
                 console.log(csv.slice(0, 300));
 
-                Papa.parse<SimulationRow>(csv, {
+                const { data } = Papa.parse<SimulationRow>(csv, {
                     header: true,
                     skipEmptyLines: true,
                     delimiter: ",",
-                    complete: (result: Papa.ParseResult<SimulationRow>) => {
-                        console.log(
-                            "Parse complete, rows:",
-                            result.data.length
-                        );
-                        console.log("Primer row:", result.data[0]);
-                        console.log(Object.keys(result.data[0]));
-                        // Filtrar la fila de encabezado si está presente en los datos
-                        const validData = result.data.filter(
-                            (row) =>
-                                row.barrio?.trim() &&
-                                row.modelo?.trim() &&
-                                !isNaN(Number(row.paquetes))
-                        );
-                        setData(validData);
-
-                        // Extraer barrios únicos (limpios)
-                        const uniqueNeighborhoods = Array.from(
-                            new Set(
-                                validData
-                                    .flatMap((row) => {
-                                        if (!row.barrio) return [];
-                                        return [{
-                                          ...row,
-                                          barrio: row.barrio
-                                            .trim()
-                                        }]
-                                    }) // Elimina espacios
-                                    .filter((row) => row !== null && row.barrio !== "")
-                            )
-                        ).sort((a,b) => a.barrio.localeCompare(b.barrio)); // Ordena alfabéticamente
-
-                        console.log(
-                            "Unique neighborhoods:",
-                            uniqueNeighborhoods.length,
-                            uniqueNeighborhoods
-                        );
-                        setNeighborhoods(uniqueNeighborhoods);
-
-                        setIsLoading(false);
-                    },
-                    error: (error: any) => {
-                        console.error("Papa Parse error:", error);
-                        setIsLoading(false);
+                    dynamicTyping: true,
+                    transform: (value, field: string) => {
+                        if (["barrio", "modelo"].includes(field)) {
+                            return value.trim();
+                        }
+                        return value;
                     },
                 });
+
+                const validData = data.filter(
+                    (row) => row.barrio && row.modelo && !isNaN(row.paquetes)
+                );
+                setData(validData);
+
+                setNeighborhoods(groupNeighborhoods(validData));
+
+                setIsLoading(false);
             })
             .catch((error) => {
                 console.error("Error loading CSV:", error);
@@ -292,45 +297,29 @@ export default function Simulation() {
             });
     }, []);
 
-    useEffect(() => {
-        if (!neighborhood || data.length === 0) {
-            setPackageSizes([]);
-            return;
-        }
-
-        const sizes = data
-            .filter((row) => row.barrio === neighborhood)
-            .map((row) => row.paquetes)
-            .filter((v, i, self) => self.indexOf(v) === i) // valores únicos
-            .sort((a, b) => parseInt(a) - parseInt(b)); // orden numérico
-
-        setPackageSizes(sizes);
-        setPackageSize(""); // reset selección
-    }, [neighborhood, data]);
     // Filtrar datos cuando cambian las selecciones
     useEffect(() => {
-        console.log("🧠 Estado data actualizado:", data.length);
-        console.log("Filtering data with:", {
-            neighborhood,
-            packageSize,
-            data,
-        });
-        if (neighborhood && packageSize && data.length > 0) {
-            const filtered = data.find(
+        if (selectedNeighborhood && selectedPackageQty && data.length > 0) {
+            const filtered = data.filter(
                 (row) =>
-                    row.barrio === neighborhood &&
-                    row.paquetes === packageSize
+                    row.barrio === selectedNeighborhood.barrio &&
+                    row.paquetes === selectedPackageQty
             );
+            const m1 = filtered.find((row) => row.modelo === "M1") || null;
+            const m2 = filtered.find((row) => row.modelo === "M2") || null;
 
-            setFilteredData(filtered || null);
+            setPredefinedData({
+                M1: m1,
+                M2: m2,
+            });
             console.log("🔍 Resultado filtrado:", filtered);
 
             setNoDataFound(!filtered);
         } else {
-            setFilteredData(null);
+            setPredefinedData({ M1: null, M2: null });
             setNoDataFound(false);
         }
-    }, [neighborhood, packageSize, data]);
+    }, [selectedNeighborhood, selectedPackageQty, data]);
 
     // Animation variants
     const pageVariants = {
@@ -409,24 +398,21 @@ export default function Simulation() {
                             </TabsTrigger>
                         </TabsList>
 
-                        
                         <TabsContent value="predefined" className="tab-content">
-                            {/* <div
-                                className={`simulation-card ${
-                                    activeModel === "M1"
-                                        ? "traditional"
-                                        : "autonomous"
-                                } p-6 mb-8`}
+                            <div
+                                className={`bg-white rounded-lg shadow-md transition-all duration-300 border-l-4 overflow-hidden border-primary hover:shadow-lg hover:transform hover:-translate-y-1 p-6 mb-8`}
                             >
                                 <BarrioMap
                                     onSelectBarrio={(name) =>
-                                        setNeighborhood(name)
+                                        setSelectedNeighborhood(
+                                            neighborhoods[name]
+                                        )
                                     }
-                                    selectedBarrio={neighborhood}
+                                    selectedBarrio={selectedNeighborhood.barrio}
                                 />
 
                                 <div className="flex items-center mb-4">
-                                    {activeModel === "M1" ? (
+                                    {true ? (
                                         <FaTruck className="text-2xl text-primary mr-3" />
                                     ) : (
                                         <FaRobot className="text-2xl text-secondary mr-3" />
@@ -462,12 +448,17 @@ export default function Simulation() {
                                                     </label>
                                                     <select
                                                         id="neighborhood"
-                                                        value={neighborhood}
+                                                        value={
+                                                            selectedNeighborhood.barrio
+                                                        }
                                                         onChange={(
                                                             e: React.ChangeEvent<HTMLSelectElement>
                                                         ) =>
-                                                            setNeighborhood(
-                                                                e.target.value
+                                                            setSelectedNeighborhood(
+                                                                neighborhoods[
+                                                                    e.target
+                                                                        .value
+                                                                ]
                                                             )
                                                         }
                                                         className="interactive-input w-full p-3 bg-white border border-gray-200 rounded-md"
@@ -478,16 +469,16 @@ export default function Simulation() {
                                                         >
                                                             Select neighborhood
                                                         </option>
-                                                        {neighborhoods.map(
-                                                            (n) => (
-                                                                <option
-                                                                    key={n}
-                                                                    value={n}
-                                                                >
-                                                                    {n}
-                                                                </option>
-                                                            )
-                                                        )}
+                                                        {Object.keys(
+                                                            neighborhoods
+                                                        ).map((barrio) => (
+                                                            <option
+                                                                key={barrio}
+                                                                value={barrio}
+                                                            >
+                                                                {barrio}
+                                                            </option>
+                                                        ))}
                                                     </select>
                                                 </div>
                                                 <div>
@@ -500,12 +491,17 @@ export default function Simulation() {
                                                     </label>
                                                     <select
                                                         id="packages"
-                                                        value={packageSize}
+                                                        value={
+                                                            selectedPackageQty
+                                                        }
                                                         onChange={(
                                                             e: React.ChangeEvent<HTMLSelectElement>
                                                         ) =>
-                                                            setPackageSize(
-                                                                e.target.value
+                                                            setSelectedPackageQty(
+                                                                parseInt(
+                                                                    e.target
+                                                                        .value
+                                                                )
                                                             )
                                                         }
                                                         className="interactive-input w-full p-3 bg-white border border-gray-200 rounded-md"
@@ -516,21 +512,21 @@ export default function Simulation() {
                                                         >
                                                             Select package size
                                                         </option>
-                                                        {packageSizes.map(
-                                                            (size) => (
-                                                                <option
-                                                                    key={size}
-                                                                    value={size}
-                                                                >
-                                                                    {size}{" "}
-                                                                    packages
-                                                                </option>
-                                                            )
-                                                        )}
+                                                        {(selectedNeighborhood?.paquetes
+                                                            ? selectedNeighborhood.paquetes
+                                                            : []
+                                                        ).map((size) => (
+                                                            <option
+                                                                key={size}
+                                                                value={size}
+                                                            >
+                                                                {size} packages
+                                                            </option>
+                                                        ))}
                                                     </select>
                                                 </div>
                                             </div>
-                                            
+
                                             <div className="bg-white rounded-lg shadow-sm border border-gray-100 w-1/2 p-4">
                                                 <h4 className="font-medium text-gray-800 mb-3 flex items-center">
                                                     <FaInfo className="mr-2 text-blue-500" />{" "}
@@ -543,11 +539,8 @@ export default function Simulation() {
                                                             Stores
                                                         </p>
                                                         <p className="text-lg font-semibold text-gray-800">
-                                                            {filteredData
-                                                                ? parseInt(
-                                                                      filteredData.comercios_barrio
-                                                                  )
-                                                                : "-"}
+                                                            {selectedNeighborhood?.comercios_barrio ||
+                                                                "-"}
                                                         </p>
                                                     </div>
                                                     <div className="text-center">
@@ -556,11 +549,8 @@ export default function Simulation() {
                                                             Distribution Points
                                                         </p>
                                                         <p className="text-lg font-semibold text-gray-800">
-                                                            {filteredData
-                                                                ? parseInt(
-                                                                      filteredData.cids_barrio
-                                                                  )
-                                                                : "-"}
+                                                            {selectedNeighborhood?.cids_barrio ||
+                                                                "-"}
                                                         </p>
                                                     </div>
                                                     <div className="text-center">
@@ -569,44 +559,12 @@ export default function Simulation() {
                                                             Warehouses
                                                         </p>
                                                         <p className="text-lg font-semibold text-gray-800">
-                                                            {filteredData
-                                                                ? parseInt(
-                                                                      filteredData.almacenes_barrio
-                                                                  )
-                                                                : "-"}
+                                                            {selectedNeighborhood?.almacenes_barrio ||
+                                                                "-"}
                                                         </p>
                                                     </div>
                                                 </div>
                                             </div>
-                                        </div>
-
-                                        <div className="flex justify-center space-x-6 mb-8">
-                                            <button
-                                                onClick={() =>
-                                                    setActiveModel("M1")
-                                                }
-                                                className={`model-button flex items-center ${
-                                                    activeModel === "M1"
-                                                        ? "bg-primary text-white shadow-md"
-                                                        : "bg-gray-100 text-gray-700 hover:bg-gray-200"
-                                                }`}
-                                            >
-                                                <FaTruck className="mr-2" />
-                                                M1: Traditional Van
-                                            </button>
-                                            <button
-                                                onClick={() =>
-                                                    setActiveModel("M2")
-                                                }
-                                                className={`model-button flex items-center ${
-                                                    activeModel === "M2"
-                                                        ? "bg-secondary text-white shadow-md"
-                                                        : "bg-gray-100 text-gray-700 hover:bg-gray-200"
-                                                }`}
-                                            >
-                                                <FaRobot className="mr-2" />
-                                                M2: Autonomous Robot
-                                            </button>
                                         </div>
 
                                         {noDataFound && (
@@ -619,191 +577,408 @@ export default function Simulation() {
                                             </div>
                                         )}
 
-                                        {filteredData && (
+                                        {(predefinedData.M1 ||
+                                            predefinedData.M2) && (
                                             <div className="simulation-results">
                                                 <h3 className="text-lg font-semibold mb-4 border-b pb-2">
                                                     Simulation Results
                                                 </h3>
-
-                                                <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
-                                                    
-                                                    <div className="bg-white p-4 rounded-lg shadow-sm border border-gray-100">
-                                                        <h4 className="font-medium text-gray-800 mb-3 flex items-center">
-                                                            <FaRoute className="mr-2 text-blue-500" />{" "}
-                                                            Distance Metrics
-                                                        </h4>
-                                                        <div className="space-y-3">
-                                                            <div className="flex justify-between items-center">
-                                                                <span className="text-sm text-gray-600">
-                                                                    Walking
-                                                                    (km):
-                                                                </span>
-                                                                <span className="font-medium">
-                                                                    {parseFloat(
-                                                                        filteredData.total_kms_walk
-                                                                    ).toFixed(
-                                                                        2
-                                                                    )}
-                                                                </span>
+                                                <div className="flex flex-row gap-6">
+                                                    <div className="flex flex-col gap-4 model-traditional p-4 rounded-lg shadow-sm border border-gray-100 w-1/2 items-center">
+                                                        <motion.div
+                                                            className="flex items-center"
+                                                            initial={{
+                                                                x: -30,
+                                                                opacity: 0,
+                                                            }}
+                                                            animate={{
+                                                                x: 0,
+                                                                opacity: 1,
+                                                            }}
+                                                            transition={{
+                                                                duration: 0.5,
+                                                                delay: 0.2,
+                                                            }}
+                                                        >
+                                                            <div className="bg-white p-4 rounded-full mr-5 shadow-lg">
+                                                                <FaTruck className="text-3xl text-red-600" />
                                                             </div>
-                                                            <div className="flex justify-between items-center">
-                                                                <span className="text-sm text-gray-600">
-                                                                    Driving
-                                                                    (km):
-                                                                </span>
-                                                                <span className="font-medium">
-                                                                    {parseFloat(
-                                                                        filteredData.total_kms_drive
-                                                                    ).toFixed(
-                                                                        2
-                                                                    )}
-                                                                </span>
+                                                            <div>
+                                                                <h2 className="text-3xl font-bold text-white">
+                                                                    Traditional
+                                                                    Delivery
+                                                                </h2>
+                                                                <p className="text-blue-100">
+                                                                    Human-driven
+                                                                    vehicles
+                                                                </p>
                                                             </div>
-                                                            <div className="flex justify-between items-center pt-2 border-t border-dashed border-gray-200">
-                                                                <span className="text-sm text-gray-600">
-                                                                    Total:
-                                                                </span>
-                                                                <span className="font-medium">
-                                                                    {(
-                                                                        parseFloat(
-                                                                            filteredData.total_kms_walk
-                                                                        ) +
-                                                                        parseFloat(
-                                                                            filteredData.total_kms_drive
-                                                                        )
-                                                                    ).toFixed(
-                                                                        2
-                                                                    )}{" "}
-                                                                    km
-                                                                </span>
-                                                            </div>
-                                                        </div>
-                                                    </div>
-
-                                                    
-                                                    <div className="bg-white p-4 rounded-lg shadow-sm border border-gray-100">
-                                                        <h4 className="font-medium text-gray-800 mb-3 flex items-center">
-                                                            <FaClock className="mr-2 text-purple-500" />{" "}
-                                                            Time Metrics
-                                                        </h4>
-                                                        <div className="space-y-3">
-                                                            <div className="flex justify-between items-center">
-                                                                <span className="text-sm text-gray-600">
-                                                                    Walking
-                                                                    (hours):
-                                                                </span>
-                                                                <span className="font-medium">
-                                                                    {parseFloat(
-                                                                        filteredData.total_hours_walk
-                                                                    ).toFixed(
-                                                                        2
-                                                                    )}
-                                                                </span>
-                                                            </div>
-                                                            <div className="flex justify-between items-center">
-                                                                <span className="text-sm text-gray-600">
-                                                                    Driving
-                                                                    (hours):
-                                                                </span>
-                                                                <span className="font-medium">
-                                                                    {parseFloat(
-                                                                        filteredData.total_hours_drive
-                                                                    ).toFixed(
-                                                                        2
-                                                                    )}
-                                                                </span>
-                                                            </div>
-                                                            <div className="flex justify-between items-center pt-2 border-t border-dashed border-gray-200">
-                                                                <span className="text-sm text-gray-600">
-                                                                    Total:
-                                                                </span>
-                                                                <span className="font-medium">
-                                                                    {(
-                                                                        parseFloat(
-                                                                            filteredData.total_hours_walk
-                                                                        ) +
-                                                                        parseFloat(
-                                                                            filteredData.total_hours_drive
-                                                                        )
-                                                                    ).toFixed(
-                                                                        2
-                                                                    )}{" "}
-                                                                    hours
-                                                                </span>
-                                                            </div>
-                                                        </div>
-                                                    </div>
-
-                                                    
-                                                    <div className="bg-white p-4 rounded-lg shadow-sm border border-gray-100">
-                                                        <div className="flex justify-between items-center mb-3">
-                                                            <h4 className="font-medium text-gray-800 flex items-center">
-                                                                <FaMoneyBillWave className="mr-2 text-green-500" />{" "}
-                                                                Cost Metrics
-                                                            </h4>
-                                                            <Link
-                                                                to="/comparison"
-                                                                className="flex items-center text-sm text-primary hover:text-blue-700 transition-colors"
-                                                                title="View detailed cost breakdown"
-                                                            >
-                                                                <FaInfo className="mr-1" />{" "}
-                                                                Detailed costs
-                                                            </Link>
-                                                        </div>
-                                                        <div className="space-y-3">
-                                                            <div className="flex justify-between items-center">
-                                                                <span className="text-sm text-gray-600">
+                                                        </motion.div>
+                                                        <div className="flex flex-col gap-4 mb-6 w-full">
+                                                            <div className="bg-white p-4 rounded-lg shadow-sm border border-gray-100">
+                                                                <h4 className="font-medium text-gray-800 mb-3 flex items-center">
+                                                                    <FaRoute className="mr-2 text-blue-500" />{" "}
                                                                     Distance
-                                                                    cost:
-                                                                </span>
-                                                                <span className="font-medium">
-                                                                    {activeModel ===
-                                                                    "M1"
-                                                                        ? parseFloat(
-                                                                              filteredData.distance_cost_van
-                                                                          ).toFixed(
-                                                                              2
-                                                                          )
-                                                                        : parseFloat(
-                                                                              filteredData.distance_cost_ona
-                                                                          ).toFixed(
-                                                                              2
-                                                                          )}{" "}
-                                                                    €
-                                                                </span>
+                                                                    Metrics
+                                                                </h4>
+                                                                <div className="space-y-3">
+                                                                    <div className="flex justify-between items-center">
+                                                                        <span className="text-sm text-gray-600">
+                                                                            Walking
+                                                                            (km):
+                                                                        </span>
+                                                                        <span className="font-medium">
+                                                                            {predefinedData.M1?.total_kms_walk.toFixed(
+                                                                                2
+                                                                            ) ||
+                                                                                "-"}
+                                                                        </span>
+                                                                    </div>
+                                                                    <div className="flex justify-between items-center">
+                                                                        <span className="text-sm text-gray-600">
+                                                                            Driving
+                                                                            (km):
+                                                                        </span>
+                                                                        <span className="font-medium">
+                                                                            {predefinedData.M1?.total_kms_drive.toFixed(
+                                                                                2
+                                                                            ) ||
+                                                                                "-"}
+                                                                        </span>
+                                                                    </div>
+                                                                    <div className="flex justify-between items-center pt-2 border-t border-dashed border-gray-200">
+                                                                        <span className="text-sm text-gray-600">
+                                                                            Total:
+                                                                        </span>
+                                                                        <span className="font-medium">
+                                                                            {predefinedData.M1
+                                                                                ? (
+                                                                                      predefinedData
+                                                                                          .M1
+                                                                                          .total_kms_walk +
+                                                                                      predefinedData
+                                                                                          .M1
+                                                                                          .total_kms_drive
+                                                                                  ).toFixed(
+                                                                                      2
+                                                                                  )
+                                                                                : "-"}{" "}
+                                                                            km
+                                                                        </span>
+                                                                    </div>
+                                                                </div>
                                                             </div>
-                                                            <div className="flex justify-between items-center">
-                                                                <span className="text-sm text-gray-600">
-                                                                    Time cost:
-                                                                </span>
-                                                                <span className="font-medium">
-                                                                    {activeModel ===
-                                                                    "M1"
-                                                                        ? parseFloat(
-                                                                              filteredData.time_cost_van
-                                                                          ).toFixed(
-                                                                              2
-                                                                          )
-                                                                        : parseFloat(
-                                                                              filteredData.time_cost_ona
-                                                                          ).toFixed(
-                                                                              2
-                                                                          )}{" "}
-                                                                    €
-                                                                </span>
+
+                                                            <div className="bg-white p-4 rounded-lg shadow-sm border border-gray-100">
+                                                                <h4 className="font-medium text-gray-800 mb-3 flex items-center">
+                                                                    <FaClock className="mr-2 text-purple-500" />{" "}
+                                                                    Time Metrics
+                                                                </h4>
+                                                                <div className="space-y-3">
+                                                                    <div className="flex justify-between items-center">
+                                                                        <span className="text-sm text-gray-600">
+                                                                            Walking
+                                                                            (hours):
+                                                                        </span>
+                                                                        <span className="font-medium">
+                                                                            {predefinedData.M1?.total_hours_walk.toFixed(
+                                                                                2
+                                                                            ) ||
+                                                                                "-"}
+                                                                        </span>
+                                                                    </div>
+                                                                    <div className="flex justify-between items-center">
+                                                                        <span className="text-sm text-gray-600">
+                                                                            Driving
+                                                                            (hours):
+                                                                        </span>
+                                                                        <span className="font-medium">
+                                                                            {predefinedData.M1?.total_hours_drive.toFixed(
+                                                                                2
+                                                                            ) ||
+                                                                                "-"}
+                                                                        </span>
+                                                                    </div>
+                                                                    <div className="flex justify-between items-center pt-2 border-t border-dashed border-gray-200">
+                                                                        <span className="text-sm text-gray-600">
+                                                                            Total:
+                                                                        </span>
+                                                                        <span className="font-medium">
+                                                                            {predefinedData.M1
+                                                                                ? (
+                                                                                      predefinedData
+                                                                                          .M1
+                                                                                          .total_hours_walk +
+                                                                                      predefinedData
+                                                                                          .M1
+                                                                                          .total_hours_drive
+                                                                                  ).toFixed(
+                                                                                      2
+                                                                                  )
+                                                                                : "-"}{" "}
+                                                                            hours
+                                                                        </span>
+                                                                    </div>
+                                                                </div>
                                                             </div>
-                                                            <div className="flex justify-between items-center pt-2 border-t border-dashed border-gray-200">
-                                                                <span className="text-sm text-gray-600">
-                                                                    Total cost:
-                                                                </span>
-                                                                <span className="font-bold text-lg">
-                                                                    {parseFloat(
-                                                                        filteredData.total_cost
-                                                                    ).toFixed(
-                                                                        2
-                                                                    )}{" "}
-                                                                    €
-                                                                </span>
+
+                                                            <div className="bg-white p-4 rounded-lg shadow-sm border border-gray-100">
+                                                                <div className="flex justify-between items-center mb-3">
+                                                                    <h4 className="font-medium text-gray-800 flex items-center">
+                                                                        <FaMoneyBillWave className="mr-2 text-green-500" />{" "}
+                                                                        Cost
+                                                                        Metrics
+                                                                    </h4>
+                                                                    <Link
+                                                                        to="/comparison"
+                                                                        className="flex items-center text-sm text-primary hover:text-blue-700 transition-colors"
+                                                                        title="View detailed cost breakdown"
+                                                                    >
+                                                                        <FaInfo className="mr-1" />{" "}
+                                                                        Detailed
+                                                                        costs
+                                                                    </Link>
+                                                                </div>
+                                                                <div className="space-y-3">
+                                                                    <div className="flex justify-between items-center">
+                                                                        <span className="text-sm text-gray-600">
+                                                                            Distance
+                                                                            cost:
+                                                                        </span>
+                                                                        <span className="font-medium">
+                                                                            {predefinedData.M1?.distance_cost_van.toFixed(
+                                                                                2
+                                                                            ) ||
+                                                                                "-"}{" "}
+                                                                            €
+                                                                        </span>
+                                                                    </div>
+                                                                    <div className="flex justify-between items-center">
+                                                                        <span className="text-sm text-gray-600">
+                                                                            Time
+                                                                            cost:
+                                                                        </span>
+                                                                        <span className="font-medium">
+                                                                            {predefinedData.M1?.time_cost_van.toFixed(
+                                                                                2
+                                                                            ) ||
+                                                                                "-"}{" "}
+                                                                            €
+                                                                        </span>
+                                                                    </div>
+                                                                    <div className="flex justify-between items-center pt-2 border-t border-dashed border-gray-200">
+                                                                        <span className="text-sm text-gray-600">
+                                                                            Total
+                                                                            cost:
+                                                                        </span>
+                                                                        <span className="font-bold text-lg">
+                                                                            {predefinedData.M1?.total_cost.toFixed(
+                                                                                2
+                                                                            ) ||
+                                                                                "-"}{" "}
+                                                                            €
+                                                                        </span>
+                                                                    </div>
+                                                                </div>
+                                                            </div>
+                                                        </div>
+                                                    </div>
+                                                    <div className="flex flex-col gap-4 model-autonomous p-4 rounded-lg shadow-sm border border-gray-100 w-1/2 items-center">
+                                                        <motion.div
+                                                            className="flex items-center"
+                                                            initial={{
+                                                                x: 30,
+                                                                opacity: 0,
+                                                            }}
+                                                            animate={{
+                                                                x: 0,
+                                                                opacity: 1,
+                                                            }}
+                                                            transition={{
+                                                                duration: 0.5,
+                                                                delay: 0.2,
+                                                            }}
+                                                        >
+                                                            <div className="bg-white p-4 rounded-full mr-5 shadow-lg">
+                                                                <FaRobot className="text-3xl text-green-600" />
+                                                            </div>
+                                                            <div>
+                                                                <h2 className="text-3xl font-bold text-white">
+                                                                    Autonomous
+                                                                    Delivery
+                                                                </h2>
+                                                                <p className="text-purple-100">
+                                                                    AI-powered
+                                                                    robots
+                                                                </p>
+                                                            </div>
+                                                        </motion.div>
+                                                        <div className="flex flex-col gap-4 mb-6 w-full">
+                                                            <div className="bg-white p-4 rounded-lg shadow-sm border border-gray-100">
+                                                                <h4 className="font-medium text-gray-800 mb-3 flex items-center">
+                                                                    <FaRoute className="mr-2 text-blue-500" />{" "}
+                                                                    Distance
+                                                                    Metrics
+                                                                </h4>
+                                                                <div className="space-y-3">
+                                                                    <div className="flex justify-between items-center">
+                                                                        <span className="text-sm text-gray-600">
+                                                                            Walking
+                                                                            (km):
+                                                                        </span>
+                                                                        <span className="font-medium">
+                                                                            {predefinedData.M2?.total_kms_walk.toFixed(
+                                                                                2
+                                                                            ) ||
+                                                                                "-"}
+                                                                        </span>
+                                                                    </div>
+                                                                    <div className="flex justify-between items-center">
+                                                                        <span className="text-sm text-gray-600">
+                                                                            Driving
+                                                                            (km):
+                                                                        </span>
+                                                                        <span className="font-medium">
+                                                                            {predefinedData.M2?.total_kms_drive.toFixed(
+                                                                                2
+                                                                            ) ||
+                                                                                "-"}
+                                                                        </span>
+                                                                    </div>
+                                                                    <div className="flex justify-between items-center pt-2 border-t border-dashed border-gray-200">
+                                                                        <span className="text-sm text-gray-600">
+                                                                            Total:
+                                                                        </span>
+                                                                        <span className="font-medium">
+                                                                            {predefinedData.M2
+                                                                                ? (
+                                                                                      predefinedData
+                                                                                          .M2
+                                                                                          .total_kms_walk +
+                                                                                      predefinedData
+                                                                                          .M2
+                                                                                          .total_kms_drive
+                                                                                  ).toFixed(
+                                                                                      2
+                                                                                  )
+                                                                                : "-"}{" "}
+                                                                            km
+                                                                        </span>
+                                                                    </div>
+                                                                </div>
+                                                            </div>
+
+                                                            <div className="bg-white p-4 rounded-lg shadow-sm border border-gray-100">
+                                                                <h4 className="font-medium text-gray-800 mb-3 flex items-center">
+                                                                    <FaClock className="mr-2 text-purple-500" />{" "}
+                                                                    Time Metrics
+                                                                </h4>
+                                                                <div className="space-y-3">
+                                                                    <div className="flex justify-between items-center">
+                                                                        <span className="text-sm text-gray-600">
+                                                                            Walking
+                                                                            (hours):
+                                                                        </span>
+                                                                        <span className="font-medium">
+                                                                            {predefinedData.M2?.total_hours_walk.toFixed(
+                                                                                2
+                                                                            ) ||
+                                                                                "-"}
+                                                                        </span>
+                                                                    </div>
+                                                                    <div className="flex justify-between items-center">
+                                                                        <span className="text-sm text-gray-600">
+                                                                            Driving
+                                                                            (hours):
+                                                                        </span>
+                                                                        <span className="font-medium">
+                                                                            {predefinedData.M2?.total_hours_drive.toFixed(
+                                                                                2
+                                                                            ) ||
+                                                                                "-"}
+                                                                        </span>
+                                                                    </div>
+                                                                    <div className="flex justify-between items-center pt-2 border-t border-dashed border-gray-200">
+                                                                        <span className="text-sm text-gray-600">
+                                                                            Total:
+                                                                        </span>
+                                                                        <span className="font-medium">
+                                                                            {predefinedData.M2
+                                                                                ? (
+                                                                                      predefinedData
+                                                                                          .M2
+                                                                                          .total_hours_walk +
+                                                                                      predefinedData
+                                                                                          .M2
+                                                                                          .total_hours_drive
+                                                                                  ).toFixed(
+                                                                                      2
+                                                                                  )
+                                                                                : "-"}{" "}
+                                                                            hours
+                                                                        </span>
+                                                                    </div>
+                                                                </div>
+                                                            </div>
+
+                                                            <div className="bg-white p-4 rounded-lg shadow-sm border border-gray-100">
+                                                                <div className="flex justify-between items-center mb-3">
+                                                                    <h4 className="font-medium text-gray-800 flex items-center">
+                                                                        <FaMoneyBillWave className="mr-2 text-green-500" />{" "}
+                                                                        Cost
+                                                                        Metrics
+                                                                    </h4>
+                                                                    <Link
+                                                                        to="/comparison"
+                                                                        className="flex items-center text-sm text-primary hover:text-blue-700 transition-colors"
+                                                                        title="View detailed cost breakdown"
+                                                                    >
+                                                                        <FaInfo className="mr-1" />{" "}
+                                                                        Detailed
+                                                                        costs
+                                                                    </Link>
+                                                                </div>
+                                                                <div className="space-y-3">
+                                                                    <div className="flex justify-between items-center">
+                                                                        <span className="text-sm text-gray-600">
+                                                                            Distance
+                                                                            cost:
+                                                                        </span>
+                                                                        <span className="font-medium">
+                                                                            {predefinedData.M2?.distance_cost_ona.toFixed(
+                                                                                2
+                                                                            ) ||
+                                                                                "-"}{" "}
+                                                                            €
+                                                                        </span>
+                                                                    </div>
+                                                                    <div className="flex justify-between items-center">
+                                                                        <span className="text-sm text-gray-600">
+                                                                            Time
+                                                                            cost:
+                                                                        </span>
+                                                                        <span className="font-medium">
+                                                                            {predefinedData.M2?.time_cost_ona.toFixed(
+                                                                                2
+                                                                            ) ||
+                                                                                "-"}{" "}
+                                                                            €
+                                                                        </span>
+                                                                    </div>
+                                                                    <div className="flex justify-between items-center pt-2 border-t border-dashed border-gray-200">
+                                                                        <span className="text-sm text-gray-600">
+                                                                            Total
+                                                                            cost:
+                                                                        </span>
+                                                                        <span className="font-bold text-lg">
+                                                                            {predefinedData.M2?.total_cost.toFixed(
+                                                                                2
+                                                                            ) ||
+                                                                                "-"}{" "}
+                                                                            €
+                                                                        </span>
+                                                                    </div>
+                                                                </div>
                                                             </div>
                                                         </div>
                                                     </div>
@@ -812,10 +987,9 @@ export default function Simulation() {
                                         )}
                                     </>
                                 )}
-                            </div> */}
+                            </div>
                         </TabsContent>
 
-                        
                         <TabsContent
                             value="interactive"
                             className="tab-content"
@@ -1019,7 +1193,6 @@ export default function Simulation() {
                             </div>
                         </TabsContent>
                     </Tabs>
-
                 </div>
             </motion.div>
         </div>
