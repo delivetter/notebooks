@@ -35,3 +35,8 @@ jobs:
                   github_token: ${{ secrets.GITHUB_TOKEN }}
                   publish_dir: website/dist
                   cname: "delivetter.tech"
+            
+            - name: Copy index to 404
+              run: |
+                  cp website/dist/index.html website/dist/404.html
+                  echo "index.html copied to 404.html"

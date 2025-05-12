@@ -255,7 +255,7 @@ export default function Simulation() {
         setIsLoading(true);
         console.log("Fetching CSV data...");
 
-        fetch("/results_simulations_agrupado.csv")
+        fetch("results_simulations_agrupado.csv")
             .then((res) => {
                 if (!res.ok) {
                     throw new Error(`HTTP error! Status: ${res.status}`);
